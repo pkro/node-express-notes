@@ -1285,6 +1285,14 @@ This reduces the backpressure as we can see with the now much fewer "backpressur
 
 `readStream.pipe(writeStream);` replaces all `end` and `data` listeners except the `error` listener and takes also care of the backPressure pause / resume flow (we will still have to set `highWaterMark` for optimization if required).
 
+A stream can be piped to multiple targets:
+
+    if(req.method === 'POST') {
+        req.pipe(res);
+        req.pipe(process.stdout);
+        req.pipe(createWriteStream('./upload.file'));
+    }
+
 ### Duplex streams
 
 A duplex stream implements a readable and a writeable in the same stream. It is the "middle section" of a pipeline (the hose);
@@ -1369,15 +1377,129 @@ Transform streams are a special kind of duplex stream that change the data the f
 
 ### Streaming to the browser
 
+Basic video streaming server:
 
+    import {createServer} from 'http';
+    import {createReadStream} from 'fs';
+    
+    const fileName = '../../ch02/01/powder-day.mp4';
+    
+    createServer((req, res) => {
+        res.writeHead(200, {'Content-Type': 'video/mp4'});
+        createReadStream(fileName).pipe(res);
+    }).listen(3000, () => console.log('running at http://localhost:3000'))
+
+Refined (telling the client the size of the video):
+
+    import {createServer} from 'http';
+    import {stat, createReadStream} from 'fs';
+    import {promisify} from 'util';
+    
+    const fileInfo = promisify(stat);
+    
+    const fileName = '../../ch02/01/powder-day.mp4';
+    
+    createServer(async (req, res) => {
+        const {size} = await fileInfo(fileName);
+        console.log(size); // this only logs once a request is made
+        res.writeHead(200, {'Content-Type': 'video/mp4', 'Content-Length': size});
+        createReadStream(fileName).pipe(res);
+    }).listen(3000, () => console.log('running at http://localhost:3000'))
 
 ### Handling range requests
 
+The server above just streams the video from the start to end and doesn't respond to range request - the browser telling the server from which point to start / end the stream to skip ahead (required by safari).
+
+    // ...
+    createServer(async (req, res) => {
+        const {size} = await fileInfo(fileName);
+        const range = req.headers.range;
+        console.log(range); // "bytes=0-" when skipping the video in the browser
+    
+        if (range) {
+            let [start, end] = range.replace("bytes=", '').split('-');
+            start = parseInt(start, 10);
+            end = end ? parseInt(end, 10) : size - 1; // if no end we set end to video length
+            res.writeHead(206, { // code 206 = partial response
+                'Content-Range': `bytes ${start}-${end}/${size}`,
+                'Accept-Ranges': 'bytes',
+                'Content-Length': (end - start) + 1,
+                'Content-Type': 'video/mp4'
+            });
+            createReadStream(fileName, {start, end}).pipe(res);
+        } else {
+            res.writeHead(200, {'Content-Type': 'video/mp4', 'Content-Length': size});
+            createReadStream(fileName).pipe(res);
+        }
+    }).listen(3000, () => console.log('running at http://localhost:3000'));
+
 ### Forking and uploading streams
+
+A stream can be piped to multiple targets (forking).
+
+Example video server with file upload (see `advance_nodejs_scripts/ch03/03/index.js` for full script):
+
+    import {createServer} from 'http';
+    // ...
+
+    const respondWithVideo = async (req, res) => {
+        const {size} = await fileInfo(fileName);
+        // ... the same function body as the anonymous
+        // async function used in the last example
+    };
+    
+    createServer((req, res) => {
+        if(req.method === 'POST') {
+            // stream forking example (for no good reason in this case)
+            req.pipe(res); // sends the file back to the browser (duh!)
+            req.pipe(process.stdout); // just show it in the console for good measure
+            req.pipe(createWriteStream('./upload.file')); // and save it
+        }
+        else if (req.url === '/video') {
+            respondWithVideo(req, res);
+        } else {
+            res.writeHead(200, {'Content-Type': 'text/html'});
+            res.end(`
+            <form enctype="multipart/form-data" method="POST" action="/">
+                <input type="file" name="upload-file" />
+                <button>Upload file</button>
+            </form>
+            `);
+        }
+    }).listen(3000, () => console.log('running at http://localhost:3000'));
+
 
 ### Parsing multipart / form data
 
+Problem: the code above saves the file just as it comes from the browser and not as a binary:
 
+    -----------------------------29085555610349193733983258503
+    Content-Disposition: form-data; name="upload-file"; filename="eow3.png"
+    Content-Type: image/png
+    
+    �PNG
+    // ...
+
+As parsing multipart form data has been solved many times, we'll use the `npm` package [multiparty](https://www.npmjs.com/package/multiparty) for this (`npm install multiparty`).
+
+    // ...
+    if(req.method === 'POST') {
+        let form = new multiparty.Form();
+        // define handler
+        form.on('part', part => {
+            // multiparty parses out the filename too
+            part.pipe(createWriteStream(`./${part.filename}`))
+                .on('close', ()=>{
+                    res.writeHead(200, {'Content-Type': 'text/html'});
+                    res.end(`<h1>file was uploaded: ${part.filename}`);
+                })
+        });
+        // actually parse form
+        form.parse(req);
+    }
+    // ...
+
+This saves the file in its original format as parsed from the upload headers and with the correct filename.
 
 # Express essential training
 

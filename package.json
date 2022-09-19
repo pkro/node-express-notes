@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "log-update": "^5.0.1"
+    "log-update": "^5.0.1",
+    "multiparty": "^4.2.3"
   }
 }
