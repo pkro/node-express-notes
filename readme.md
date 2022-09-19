@@ -44,6 +44,7 @@ Notes from various nodejs and expressjs related courses
   - [Advanced streams](#advanced-streams)
     - [Why streams?](#why-streams)
     - [Readable streams](#readable-streams)
+    - [Using readable streams](#using-readable-streams)
     - [Writable streams](#writable-streams)
     - [Backpressure](#backpressure)
     - [Piping streams](#piping-streams)
