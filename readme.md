@@ -1024,22 +1024,296 @@ Example of a promise queue with the ability to limit parallel execution, with co
 
 ### Why streams?
 
+`node --trace_gc myfile.js` shows garbage collection during runtime.
+Entries with `Mark-sweep` indicate high activity as they stop the node process for garbage collection. `Scavenge` entries indicate a smaller footprint.
+
+Buffering locally has a much higher garbage collection overhead and memory usage than streaming as the video file is never fully loaded into memory:
+
+Buffer version:
+
+    import fs  from 'fs';
+    import http from 'http';
+    const file = './powder-day.mp4';
+
+    http.createServer((req, res) => {
+        fs.readFile(file, (error, data) => {
+            if (error) {
+                console.log('hmmmm: ', error);
+            }
+            res.writeHeader(200, { 'Content-Type': 'video/mp4' });
+            res.end(data);
+        })
+    
+    }).listen(3000, () => console.log('buffer - http://localhost:3000'));
+
+
+Streaming version:
+
+    http.createServer((req, res) => {
+        res.writeHeader(200, { 'Content-Type': 'video/mp4' });
+        fs.createReadStream(file)
+            .pipe(res)
+            .on('error', console.error);
+    
+    }).listen(3000, () => console.log('stream - http://localhost:3000'));
+
+
 ### Readable streams
+
+A custom stream from anything can be created by extending `Readable` from the included `stream` library.
+
+Streams have 2 modes:  
+
+- binary mode: read as binary or string (by setting the encoding type to `utf-8` in the `super` constructor call)
+- object mode: data as javascript objects. Enable by setting `objectMode: true` in the constructor.
+
+
+String mode:
+
+    import {Readable} from 'stream';
+    
+    const peaks = [
+        "Tallac",
+        "Ralston",
+        "Rubicon",
+        "Twin Peaks",
+        "Castle Peak",
+        "Rose",
+        "Freel Peak"
+    ];
+    
+    class StreamFromArray extends Readable {
+        constructor(array) {
+            super({encoding: 'utf-8'});
+            this.array = array;
+            this.index = 0;
+        }
+    
+        _read() { // must be implemented
+            if (this.index <= this.array.length) {
+                const chunk = this.array[this.index];
+                this.push(chunk);
+                this.index++;
+            } else {
+                this.push(null); // indicate that stream is over
+            }
+        }
+    }
+    
+    const peakStream = new StreamFromArray(peaks);
+    
+    peakStream.on('data', chunk => console.log(chunk));
+    peakStream.on('end', () => console.log('done'));
+
+Result:
+
+    Tallac
+    Ralston
+    ...
+    done
+
+Object mode:
+
+    ...
+    super({objectMode: true});
+    ...
+    const chunk = {
+        data: this.array[this.index],
+        index: this.index
+    }
+
+Result:
+
+    { data: 'Tallac', index: 0 }
+    { data: 'Ralston', index: 1 }
+    ...
+    { data: undefined, index: 7 }
+    done
+
+### Using readable streams
+
+Streams in **non-flowing mode** (e.g `process.stdin`) have to be "asked for" continuing the stream:
+
+    process.stdin.on('data', data=>console.log(data.toString().trim()));
+
+Streams in **flowing mode** automatically push the data chunks to the pipeline:
+
+    import fs from 'fs';
+    const readStream = fs.createReadStream('../01/powder-day.mp4');
+    readStream.on('data', chunk => {
+        console.log(chunk.length);
+    });
+
+To convert a flowing read stream to non-flowing, we can use `readStream.pause()` and use `readStream.read()` to read the next chunk. `readStream.resume()` converts it back to flowing mode.
+
+    const readStream = fs.createReadStream('../01/powder-day.mp4');
+    
+    let chunksRead = 0;
+    readStream.on('data', chunk => {
+        chunksRead++;
+        console.log(`read ${chunksRead} chunks`);
+    });
+    // pauses before first read from the stream
+    readStream.pause();
+    // wait for input / enter before reading the next chunk
+    process.stdin.on('data', data => {
+        if(data.toString().trim() === 'finish') {
+            readStream.resume(); // reads all remaining chunks
+        }
+        readStream.read()
+    });
+
 
 ### Writable streams
 
+Same info as in the essential training course above.
+
+    const readStream = fs.createReadStream('../01/powder-day.mp4');
+    const writeStream = fs.createWriteStream('./copy.mp4');
+    
+    readStream.on('data', chunk => {
+        writeStream.write(chunk);
+    });
+    
+    // or, shorter:
+    //readStream.pipe(writeStream);
+    
+    readStream.on('end', () => {
+        console.log("done")
+        writeStream.end(); // optionally allows for writing a final chunk
+    });
+
 ### Backpressure
+
+If the target of the stream (the writable stream) can't accept the chunks as fast as they are delivered it's called *backpressure*.
+
+In that case, we need to stop the stream until the target can accept data again.
+
+The file copy example above already creates backpressure (that we would see if we did analyze the process' memory).
+
+The `write` function of a writable stream returns a boolean indicating if the "hose is full", e.g. the write stream pipe is saturated and needs to process the data before continuing:
+
+    // ...
+    readStream.on('data', (chunk) => {
+        const result = writeStream.write(chunk);
+        if(!result) {
+            console.log("backpressure");
+            readStream.pause();
+        }
+    });
+    
+    writeStream.on('drain', ()=> {
+        console.log('drained');
+        readStream.resume();
+    })
+    // ...
+
+Output:
+
+    drained
+    backpressure
+    drained
+    backpressure
+    drained
+    ...
+
+We can set the buffer ("diameter of the hose") in the writeStream using an options object with a `highWaterMark` property:
+
+    const writeStream = createWriteStream('./copy.mp4', {
+        highWaterMark: 1628920
+    });
+
+This reduces the backpressure as we can see with the now much fewer "backpressure / drained" logs (or can be eliminated with a large enough number).
 
 ### Piping streams
 
+`readStream.pipe(writeStream);` replaces all `end` and `data` listeners except the `error` listener and takes also care of the backPressure pause / resume flow (we will still have to set `highWaterMark` for optimization if required).
+
 ### Duplex streams
 
+A duplex stream implements a readable and a writeable in the same stream. It is the "middle section" of a pipeline (the hose);
+
+`PassThrough` from `stream` is a basic duplex stream we can put between the read- and the writeStream:
+
+    const report = new PassThrough();
+    let total = 0;
+    report.on('data', data => console.log(`passed through ${total+=data.length}`));
+
+    readStream.pipe(report).pipe(writeStream);
+
+Implementing and adding a custom duplex stream to artificially throttle throughput:
+
+    import {Duplex, PassThrough} from 'stream';
+    import { createReadStream, createWriteStream } from 'fs';
+    
+    const readStream = createReadStream('../01/powder-day.mp4');
+    const writeStream = createWriteStream('./copy.mp4');
+    
+    class Throttle extends Duplex {
+        constructor(ms) {
+            super();
+            this.delay = ms;
+        }
+    
+        // for a Duplex, we need to implement _read, _write and _final
+        _read() {}
+    
+        _write(chunk, encoding, callback) {
+            this.push(chunk);
+            setTimeout(callback, this.delay)
+        }
+    
+        _final() {
+            this.push(null);
+        }
+    }
+    const report = new PassThrough();
+    let total = 0;
+    report.on('data', data => console.log(`passed through ${total+=data.length}`));
+    const throttle = new Throttle();
+    
+    readStream
+        .pipe(throttle)
+        .pipe(report)
+        .pipe(writeStream);
+    
+    readStream.on('error', (error) => {
+        console.log('an error occurred', error.message);
+    });
+    
 ### Transform streams
 
+Transform streams are a special kind of duplex stream that change the data the forward.
+
+    import {Transform} from 'stream';
+    
+    class ReplaceText extends Transform {
+        constructor(char) {
+            super();
+            this.replaceChar = char;
+        }
+        _transform(chunk, encoding, callback) {
+            // replace all letters and numbers with the given character
+            const transformChunk = chunk.toString().replace(/[a-zA-Z0-9]/g, this.replaceChar);
+            this.push(transformChunk);
+            callback();
+        }
+    }
+    
+    const replacer = new ReplaceText('X');
+    
+    process.stdin.pipe(replacer).pipe(process.stdout);
+    
+    /* in/output
+    fdsfasd,dfsdds
+    XXXXXXX,XXXXXX
+     */
  
 ## HTTP streaming
 
 ### Streaming to the browser
+
+
 
 ### Handling range requests
 
