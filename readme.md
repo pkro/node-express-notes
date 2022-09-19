@@ -1,5 +1,8 @@
 Notes from various nodejs and expressjs related courses
 
+<!-- START doctoc -->
+<!-- END doctoc -->
+
 # Node.js essential training
 
 Notes from the linkedin learning course by Alex Banks
@@ -1018,6 +1021,33 @@ Example of a promise queue with the ability to limit parallel execution, with co
     delayQueue.run();
 
 ## Advanced streams
+
+### Why streams?
+
+### Readable streams
+
+### Writable streams
+
+### Backpressure
+
+### Piping streams
+
+### Duplex streams
+
+### Transform streams
+
+ 
+## HTTP streaming
+
+### Streaming to the browser
+
+### Handling range requests
+
+### Forking and uploading streams
+
+### Parsing multipart / form data
+
+
 
 # Express essential training
 
