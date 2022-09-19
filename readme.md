@@ -587,3 +587,440 @@ It is not designed for asynchronous or long running processes.
 # Advanced node.js
 
 Notes from the linkedin learning course by Alex Banks
+
+## Asynchronous patterns
+
+### Callback pattern
+
+A callback is a block of instructions wrapped in a function that is called when an asynchronous call has completed.
+
+Starting point: synchronous
+
+    function hideString(str) {
+        return str.replace(/[a-zA-Z]/g, 'X');
+    }
+    const hidden = hideString("Hello World");
+    console.log( hidden );
+    console.log('end');
+
+Output:
+
+    XXXXX XXXXX
+    end
+
+[Continuation-passing style (cps)](https://en.wikipedia.org/wiki/Continuation-passing_style):
+
+This is still operating synchronously (the thread executes in order).
+
+    // done = callback function
+    function hideString(str, done) {
+        done(str.replace(/[a-zA-Z]/g, 'X'));
+    }
+    hideString("Hello World", hidden => console.log(hidden));
+    
+    console.log('end');
+
+Output:
+
+    XXXXX XXXXX
+    end
+
+Asynchronous:
+
+    function hideString(str, done = str => null) {
+        //nextTick = next iteration of event loop
+        process.nextTick(()=>done(str.replace(/[a-zA-Z]/g, 'X')));
+    }
+    hideString("Hello World", hidden => console.log(hidden));
+    console.log('end');
+
+Output:
+    
+    end
+    XXXXX XXXXX
+
+Sequential execution of callbacks, aka callback hell (antipattern):
+
+    function delay(seconds, callback) {
+        setTimeout(callback, seconds * 1000);
+    }
+    
+    console.log("starting delays");
+    delay(2, () => {
+        console.log("two seconds");
+        delay(1, () => {
+            console.log("three seconds");
+            delay(1, () => {
+                console.log("four seconds");
+            });
+        });
+    });
+    
+    console.log('end');
+
+Output:
+
+    starting delays
+    end
+    two seconds
+    three seconds
+    four seconds
+
+
+### Resolving promises
+
+A promise is an object that can be used to represent the eventual completion of an asynchronous operation.
+
+Passing a function without parameters as the callback that should be executed after the asynchronous operation:
+
+    const delay = (seconds) => new Promise((resolve, reject)=> {
+        setTimeout(resolve, seconds * 1000);
+    });
+    
+    delay(1)
+        .then(() => console.log("the delay has ended"));
+    
+    console.log('end first tick');
+
+Output:
+
+    end first tick
+    the delay has ended
+
+
+Passing a function **with** a parameter for the result of the operation (same result as above):
+
+    const delay = (seconds) => new Promise((resolve, reject)=> {
+        setTimeout(()=> {
+            resolve('the delay has ended')
+        }, seconds * 1000);
+    });
+    
+    delay(1)
+        .then((result) => console.log(result));
+        // or just .then(console.log);
+
+Chaining `then` callbacks:
+
+    delay(1)
+        .then(console.log)
+        .then(() => console.log("hey, done"));
+
+The function passed to `then` can also return a result that will be used in the next chained `then`:
+
+    delay(1)
+        .then(()=>42)
+        .then(console.log); // 42
+
+
+### Rejecting promises
+
+Without catching an error:
+
+    const delay = (seconds) => new Promise((resolve, reject) => {
+        throw new Error("failed"); // something going wrong
+        setTimeout(resolve, seconds * 1000);
+    });
+    
+    delay(1)
+        .then(()=>console.log('all went well'))
+
+Output:
+
+    Error: failed
+    at /home/pk/projects/lynda/node_express_notes/advance_nodejs_scripts/ch01_callback.js:2:11
+    ...
+    
+With catching the error:
+
+    delay(1)
+        .then(()=>console.log('all went well'))
+        .catch(err=>console.log(err.message))
+
+Output:
+
+    failed
+
+It is not necessary to throw an error as we can use the reject function based on any logic:
+
+    const delay = (seconds) => new Promise((resolve, reject) => {
+        if(seconds > 5) reject(new Error("Max 5 seconds allowed"));
+
+        setTimeout(resolve, seconds * 1000);
+    });
+
+There's nothing special about the `Error` object (though it's best practice), it would have worked with `reject({message: 'error occured'})` as well.
+
+### The promisify function
+
+Node comes with the `promisify` function to convert functions that use callbacks to promises. The callbacks in the function to be converted mus follow the `(error, value)` parameter order. 
+
+The function and usage we want to convert:
+
+    const delay = (seconds, callback) => {
+        if (seconds > 3) {
+            callback(new Error(`${seconds} seconds it too long!`));
+        } else {
+            setTimeout(() =>
+                    callback(null, `the ${seconds} second delay is over.`),
+                seconds
+            );
+        }
+    }
+
+    delay(2, (error, message) => {
+        if (error) {
+            console.log(error.message);
+        } else {
+            console.log(message);
+        }
+    });
+
+With promisify:
+
+    const {promisify} = require('util');
+    const delay = (seconds, callback) => {
+       // same
+    }
+
+    const promiseDelay = promisify(delay);
+
+    promiseDelay(2)
+        .then(console.log)
+        .catch(err => console.log(err.message));
+
+`writeFile` form `fs` is usually a callback function, but we can convert it to a promise as well:
+
+    const {promisify} = require('util');
+    const fs = require('fs');
+    
+    const writeFile = promisify(fs.writeFile);
+    
+    writeFile('./sample.txt', 'a sample text')
+        .then(() => console.log("success"))
+        .catch(err => console.log(err.message));
+
+
+### Sequential execution
+
+Sequential execution using callback hell:
+
+    var fs = require('fs');
+    var beep = () => process.stdout.write("\x07");
+    
+    const doStuffSequentially = () => {
+        console.log('starting');
+        setTimeout(() => {
+            console.log('waiting');
+            setTimeout(() => {
+                console.log('waiting some more');
+                fs.writeFile('file.txt', 'Sample File...', error => {
+                    if (error) {
+                        console.error(error);
+                    } else {
+                        beep();
+                        console.log('file.txt created')
+                        setTimeout(() => {
+                            beep();
+                            fs.unlink('file.txt', error => {
+                                if (error) {
+                                    console.error(error);
+                                } else {
+                                    console.log('file.txt removed');
+                                    console.log('sequential execution complete');
+                                }
+                            })
+                        }, 3000)
+                    }
+                });
+            }, 2000)
+        }, 1000)
+    }
+    
+    doStuffSequentially();
+
+Using promises:
+
+    var fs = require('fs');
+    var { promisify } = require('util');
+    var writeFile = promisify(fs.writeFile);
+    var unlink = promisify(fs.unlink);
+    var beep = () => process.stdout.write("\x07");
+    var delay = (seconds) => new Promise((resolves) => {
+        setTimeout(resolves, seconds*1000);
+    })
+    
+    // creates a new promise object and automatically resolve it
+    // just created to chain up the sequentially executed .then methods
+    const doStuffSequentially = () => Promise.resolve()
+      .then(() => console.log('starting'))
+      .then(() => delay(1))
+      .then(() => 'waiting')
+      .then(console.log)
+      .then(() => delay(2))
+      .then(() => writeFile('file.txt', 'Sample File...'))
+      .then(beep)
+      .then(() => 'file.txt created')
+      .then(console.log)
+      .then(() => delay(3))
+      .then(() => unlink('file.txt'))
+      .then(beep)
+      .then(() => 'file.txt removed')
+      .then(console.log)
+      .catch(console.error);
+    
+    doStuffSequentially()
+      .then(() => console.log('again again!!!'))
+      .then(() => doStuffSequentially())
+      .then(() => console.log('enough already...'));
+
+### Sequential execution with async / await
+
+    const fs = require('fs');
+    // ... same as above
+    
+    // the function that contains await must be defined as async
+    async function doStuffSequentially () {
+        console.log('starting');
+        await delay(1);
+        console.log("waiting");
+        await delay(2);
+        // we can now also be specific in which lines we want to catch errors
+        try {
+            await writeFile('file.txt', 'sample file...');
+            beep();
+            console.log("file created");
+        } catch (error) {
+            console.log(error.message);
+        }
+        await delay(1);
+        await unlink('file.txt');
+        console.log("file deleted");
+        return 'success';
+    }
+    
+    // call:
+    doStuffSequentially().then(msg => console.log(msg));
+    
+    // or in an async function
+    async function start() {
+        const res = await doStuffSequentially();
+        console.log(res);
+    }
+    start();
+    
+    // or as an iifi (imediately invoked function expression), anti-pattern now
+    (async function () {
+        const res = await doStuffSequentially();
+        console.log(res);
+    })();
+
+Note that the 3 ways to call the function shown above would *still* be executed in parallel / asynchronously, so there will be errors if all 3 of them run.
+
+### Parallel execution
+
+`Promise.all` returns a single promise that is returned once all the promises passed into it in an array are resolved.
+
+    Promise.all([
+        // executed in parallel
+        delay(2).then(()=>"promise 1 finished"),
+        delay(3).then(()=>"promise 2 finished"),
+        delay(5).then(()=>"promise 3 finished"), // longest, 5 seconds
+    ]).then(res => console.log(res)); // executed after all promises are resolved
+    
+    /*
+    Result (after 5 seconds):
+    [ 'promise 1 finished', 'promise 2 finished', 'promise 3 finished' ]
+    */
+
+`Promise.all` will reject when *any* of the promises rejects.
+
+`Promise.allSettled` will wait for all promises to complete, no matter if rejected or resolved.
+
+`Promise.race` resolves after the *first* promise has resolved (the other promises are still executed though).
+
+    Promise.race([
+        // executed in parallel
+        delay(2).then(()=>"I will not be returned"),
+        delay(1).then(()=>"promise 2 finished"),
+        delay(3).then(()=>"I will not be returned").then(()=>console.log("longest promise finished as well")), // longest, 5 seconds
+    ]).then(res => console.log(res)); // executed after all promises are resolved
+    
+    /*
+    Result (after 5 seconds):
+    promise 2 finished // after 1 second, the ONLY result of the Promise.race promise
+    longest promise finished as well // after five seconds, the console log is not a result but a side effect of the sub-promise
+    */
+
+
+### Concurrent tasks
+
+Example of a promise queue with the ability to limit parallel execution, with console visualization:
+
+    import logUpdate  from 'log-update'; // must be installed via npm
+    const toX = () => 'X';
+    
+    const delay = (seconds) => new Promise((resolves) => {
+        setTimeout(resolves, seconds * 1000);
+    });
+    
+    const tasks = [
+        delay(4),
+        delay(6),
+        delay(4),
+        delay(3),
+        delay(5),
+        delay(7),
+        delay(9),
+        delay(10),
+        delay(3),
+        delay(5)
+    ];
+    
+    class PromiseQueue {
+        constructor(promises = [], concurrentCount = 1) {
+            this.concurrent = concurrentCount;
+            this.total = promises.length;
+            this.todo = promises;
+            this.running = [];
+            this.complete = [];
+        }
+    
+        get shouldRunAnother() {
+            return (this.running.length < this.concurrent) && this.todo.length;
+        }
+    
+        // just to visualize what's happening
+        graphTasks() {
+            const {todo, running, complete} = this;
+            logUpdate(`
+            todo: [${todo.map(toX)}]
+            running: [${running.map(toX)}]
+            complete: [${complete.map(toX)}]
+            `)
+        }
+    
+        run() {
+            while (this.shouldRunAnother) {
+                var promise = this.todo.shift();
+                promise.then(() => {
+                    this.complete.push(this.running.shift());
+                    this.graphTasks();
+                    this.run();
+                })
+                this.running.push(promise);
+                this.graphTasks();
+            }
+        }
+    }
+    
+    const delayQueue = new PromiseQueue(tasks, 2);
+    delayQueue.run();
+
+## Advanced streams
+
+# Express essential training
+
+Notes from the linkedin learning course by Jamie Pittman
+
+## First steps

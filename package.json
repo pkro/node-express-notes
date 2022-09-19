@@ -1,0 +1,8 @@
+{
+  "name": "node_express_notes",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "log-update": "^5.0.1"
+  }
+}
