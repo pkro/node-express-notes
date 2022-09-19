@@ -1,7 +1,63 @@
 Notes from various nodejs and expressjs related courses
 
-<!-- START doctoc -->
-<!-- END doctoc -->
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+**Table of Contents**
+
+- [Node.js essential training](#nodejs-essential-training)
+  - [Intro](#intro)
+  - [Node globals](#node-globals)
+    - [The global object](#the-global-object)
+    - [Require / modules](#require--modules)
+    - [Argument variables with process.argv](#argument-variables-with-processargv)
+    - [Standard output](#standard-output)
+    - [Standard input](#standard-input)
+    - [setTimeout / setInterval](#settimeout--setinterval)
+  - [Node modules](#node-modules)
+    - [Core modules](#core-modules)
+    - [readline](#readline)
+    - [Export custom modules](#export-custom-modules)
+    - [Building questions.js with a module](#building-questionsjs-with-a-module)
+    - [Custom events with the EventEmitter](#custom-events-with-the-eventemitter)
+    - [Improving the `collectAnswers.js` module using `EventEmitter`](#improving-the-collectanswersjs-module-using-eventemitter)
+  - [File system basics](#file-system-basics)
+    - [List directory files](#list-directory-files)
+    - [Read files](#read-files)
+    - [Write and append files, create directories](#write-and-append-files-create-directories)
+    - [Append files](#append-files)
+    - [Rename and remove files and directories](#rename-and-remove-files-and-directories)
+  - [Files and streams](#files-and-streams)
+    - [Readable file streams](#readable-file-streams)
+    - [Writable file streams](#writable-file-streams)
+    - [Create a child process with `exec`](#create-a-child-process-with-exec)
+    - [Create a child process with `spawn`](#create-a-child-process-with-spawn)
+- [Advanced node.js](#advanced-nodejs)
+  - [Asynchronous patterns](#asynchronous-patterns)
+    - [Callback pattern](#callback-pattern)
+    - [Resolving promises](#resolving-promises)
+    - [Rejecting promises](#rejecting-promises)
+    - [The promisify function](#the-promisify-function)
+    - [Sequential execution](#sequential-execution)
+    - [Sequential execution with async / await](#sequential-execution-with-async--await)
+    - [Parallel execution](#parallel-execution)
+    - [Concurrent tasks](#concurrent-tasks)
+  - [Advanced streams](#advanced-streams)
+    - [Why streams?](#why-streams)
+    - [Readable streams](#readable-streams)
+    - [Writable streams](#writable-streams)
+    - [Backpressure](#backpressure)
+    - [Piping streams](#piping-streams)
+    - [Duplex streams](#duplex-streams)
+    - [Transform streams](#transform-streams)
+  - [HTTP streaming](#http-streaming)
+    - [Streaming to the browser](#streaming-to-the-browser)
+    - [Handling range requests](#handling-range-requests)
+    - [Forking and uploading streams](#forking-and-uploading-streams)
+    - [Parsing multipart / form data](#parsing-multipart--form-data)
+- [Express essential training](#express-essential-training)
+  - [First steps](#first-steps)
+
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 # Node.js essential training
 
