@@ -1502,6 +1502,292 @@ As parsing multipart form data has been solved many times, we'll use the `npm` p
 
 This saves the file in its original format as parsed from the upload headers and with the correct filename.
 
+# Advanced Node JS: Scaling applications
+
+Yet another Alex Banks course on linkedin learning
+
+## The scale cube
+
+https://www.geeksforgeeks.org/the-scale-cube/
+
+![scale cube](img/scalecube.png)
+
+- lower left starting point: one monolithic application
+- x axis: scaling by creating more instances of the app, possibly on different machines
+- y axis: dividing the application in microservices that are responsible for a single feature
+- z axis: scaling the data capabilities (e.g. splitting up the DB)
+- 
+## Cloning (x-axis)
+
+Cloning: Running the monolithic app in several identical instances. 
+
+### Forking processes
+
+Node applications are made to scale by easily forking apps:
+
+app.js:
+
+    import http from 'http';
+    const port = parseInt(process.argv[2] || '3000');
+    // ...
+    const server = http.createServer((req, res) => {
+        // ...
+        res.end(payload);
+    });
+    server.listen(port);
+    console.log(`advise service running on port ${port}`);
+
+index.js:
+
+    import {fork} from 'child_process';
+    
+    // array only used to be able to count the processes, fork is executed on array creation
+    // (otherwise we could do [()=>fork(...), ...] instead of forking directly)
+    const processes = [
+        fork('./app', ['3001']),
+        fork('./app', ['3002']),
+        fork('./app', ['3003'])
+    ];
+    
+    console.log(`forked ${processes.length}`);
+
+Output (running index.js):
+    
+    forked 3
+    advise service running on port 3002
+    advise service running on port 3003
+    advise service running on port 3001
+
+### Using a cluster module
+
+Node is single threaded and thus runs only on one processor. Forking is required to take full advantage of the hardware.
+
+A cluster is a group of node instances (workers) that all work together and are spawned from a main process.
+
+Node comes with a `cluster` library that can be used to spawn these worker processes from a primary process. Worker / child processes know if they are spawned from another process so we can detect if the main process or a worker process is running using `cluster.isPrimary` (deprecated: `isMaster`). 
+
+    import cluster from 'cluster';
+
+    if (cluster.isPrimary) {
+      console.log("this is the MASTER process", process.pid);
+      cluster.fork(); // forks itself
+      cluster.fork();
+      cluster.fork();
+    } else {
+      console.log("worker process", process.pid);
+    }
+
+Output:
+    
+    this is the MASTER process 15671
+    worker process 15684
+    worker process 15685
+    worker process 15691
+
+The `os` library allows us to detect number and details of the available CPUs and scale our app accordingly:
+
+    import {cpus} from 'os';
+    
+    const numCPUs = cpus().length;
+    
+    if (cluster.isPrimary) {
+        console.log("this is the MASTER process", process.pid);
+        for (let i = 0; i < numCPUs; i++) {
+            cluster.fork();
+        }
+    // ...
+
+In the worker processes (`cluster.isPrimary === false`), we can then do the actual work:
+
+    import http from 'http';
+    import cluster from 'cluster';
+    import {cpus} from 'os';
+    
+    const numCPUs = cpus().length;
+    
+    if (cluster.isPrimary) {
+        console.log("this is the MASTER process", process.pid);
+        for (let i = 0; i < numCPUs; i++) {
+            cluster.fork();
+        }
+    } else {
+        http.createServer((req, res)=>{
+            const message = `worker ${process.pid}`;
+            console.log(message);
+            res.end(message);
+        }).listen(3000)
+    }
+
+Using the `cluster` library, we can use the same port number in the process' payload for ALL processes as they are only used if the others are busy. All processes are running (so it's not like PHP / Apache where a fork is only created when a request is made).
+
+Accessing the above webserver by hand always shows the same process ID in the log as there's not enough load for the other processes to be used.
+
+We can test this using the [loadtest](https://www.npmjs.com/package/loadtest) library:
+
+`npm install -g loadtest`
+
+Then running `loadtest -n 300 http://localhost:3000`
+
+    this is the MASTER process 16202
+    worker 16215
+    worker 16229
+    worker 16217
+    worker 16228
+    ...
+
+
+### Architecting zero downtime
+
+A main process can detect failed processes (workers) and restart them. It can also be used for updates as the cluster can be told to restart each process with the updated code.
+
+    // ...
+    if (cluster.isPrimary) {
+        console.log('this is the master process: ', process.pid);
+        for (let i = 0; i < numCPUs; i++) {
+            cluster.fork();
+        }
+        cluster.on('exit', worker => {
+            console.log(`worker ${process.pid} died,  ${Object.keys(cluster.workers).length} remain`);
+        });
+    
+    } else {
+        console.log(`started worker at ${process.pid}`);
+        http.createServer((req, res) => {
+            res.end(`worker ${process.pid}...`);
+            if (req.url === '/kill') {
+                process.exit();
+            }
+            console.log(`working on request ${process.pid}`);
+        }).listen(3000);
+    }
+
+Output:
+
+    this is the master process:  19435
+    started worker at 19449
+    started worker at 19456
+    // ...
+    started worker at 19498
+    working on request 19449 # calling http://localhost:3000
+    worker 19435 died,  11 remain # http://localhost:3000/kill 3 times
+    worker 19435 died,  10 remain
+    worker 19435 died,  9 remain
+
+Since the primary process is listening for the 'exit' event of its workers, it can easily restart a process if one of the workers dies:
+
+    //...
+    cluster.on('exit', worker => {
+        console.log(`worker ${process.pid} died,  ${Object.keys(cluster.workers).length} remain, forking 1 process`);
+        cluster.fork();
+    });
+    //...
+
+Output:
+
+    //...
+    worker 19858 died,  11 remain, forking 1 process # http://localhost:3000/kill
+    started worker at 20017
+    worker 19858 died,  11 remain, forking 1 process # http://localhost:3000/kill
+    started worker at 20030
+
+### Working with clusters with [PM2](https://pm2.keymetrics.io/docs/usage/cluster-mode/)
+
+Problem: what if the primary process dies?
+
+In production environments, process managers like `PM2` are usually used instead of creating own clusters in node.
+
+`npm install -g pm2`
+
+Starting 3 processes of a server in the background (the normal server used in app.js we used before, see `nodejs_scaling_apps_scripts/ch01/06/app.js`):
+
+`pm2 start app.js -i 3`
+
+On startup, the pm2 will show information about all processes:
+
+![pm2 console output](img/pm2_output.png)
+
+Usefull commands:
+
+- `pm2 list` shows same output as in startup
+- `pm2 stop appname` what it says, can be restarted with `pm2 reload appname]`
+- `pm2 delete appname` deletes all instances of `appname` from pm2 (can't be restarted anymore)
+- `pm2 start app.js -i max` starts as many processes as there are available cpus
+- `pm2 log` what it says
+- `pm2 monit` brings up a monitor
+- `pm2 reload appname` reloads the app with the latest code
+
+pm2 monitor during `loadtest -n 2000 http://localhost:3000`:
+
+![pm2 monitor](img/pm2_monitor.png)
+
+After a code change, the app can be live reloaded and existing processes replaced with `pm2 reload app` while redirecting traffic to the live nodes in the meantime.
+
+## Database scaling
+
+Used by all instances / processes as the single source of truth as local variables to a running process aren't shared.
+
+### Working with databases
+
+Lightweight file based node db implementing the browsers localStorage api in node: [node-localstorage](https://www.npmjs.com/package/node-localstorage)
+
+    import http from 'http';
+    import {LocalStorage} from 'node-localstorage';
+    
+    const localStorage = new LocalStorage('./requests', 1024);
+    let requests = localStorage.getItem('requests');
+    
+    if (!requests) {
+        requests = 0;
+        localStorage.setItem(requests);
+    }
+    
+    const server = http.createServer((req, res) => {
+        if (req.url === '/') {
+            requests = +localStorage.getItem('requests') + 1;
+            // there could still be a race condition between these 2 lines
+            localStorage.setItem('requests', requests);
+            console.log(`${process.pid}: ${requests}`);
+            res.end(JSON.stringify(requests));
+        }
+    });
+    
+    server.listen(3000);
+    console.log(`counting requests`);
+
+### Scaling the z-axis (database, horizontal partitioning, sharding)
+
+>Sharding and partitioning are both about breaking up a large data set into smaller subsets. The difference is that sharding implies the data is spread across multiple computers while partitioning does not. Partitioning is about grouping subsets of data within a single database instance. 
+
+https://hazelcast.com/glossary/sharding/
+
+DBs can be partitioned by tenant, region or any other datapoint that gurarantees referential integrity, meaning the data between the DB instances has to be independent of one another.
+
+Don't shard unless
+
+- there's too much data
+- more write ops than the server can handle
+- other performance issues
+
+Ways for partitioning for various DBs:
+
+- MongoDB: mongos
+- Postgres: Postgres-XL
+- MySQL: Fabric, Router
+- Elasticsearch: Lucene
+
+For RDBMS like MySQL, sharding is more difficult than for read optimized document databases like MongoDB that are not ACID (Atomicity, Consistency, Isolation, and Durability) compliant and needs more manual work and is only really an option if no cross-DB queries need to be performed.
+
+### Setting up horizontal partitioning with `node-localstorage`
+
+
+## Microservices
+
+
+# Node JS design patterns
+
+And yet another to-the-point and well explained Alex Banks course on linkedin learning
+
+
 # Express essential training
 
 Notes from the linkedin learning course by Jamie Pittman
