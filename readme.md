@@ -1779,6 +1779,7 @@ For RDBMS like MySQL, sharding is more difficult than for read optimized documen
 
 ### Setting up horizontal partitioning with `node-localstorage`
 
+Simple example of using 2 "databases" while keeping the same interface for the consumer in `index.js` in `nodejs_scaling_apps_scripts/ch02/04/after`.
 
 ## Microservices
 
