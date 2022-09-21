@@ -190,3 +190,4 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
+/nodejs_scaling_apps_scripts/ch02/02/requests/0

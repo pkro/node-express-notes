@@ -1723,7 +1723,9 @@ Usefull commands:
 
 - `pm2 list` shows same output as in startup
 - `pm2 stop appname` what it says, can be restarted with `pm2 reload appname]`
+- `pm2 stop all` what it says
 - `pm2 delete appname` deletes all instances of `appname` from pm2 (can't be restarted anymore)
+- `pm2 delete all` deletes all instances
 - `pm2 start app.js -i max` starts as many processes as there are available cpus
 - `pm2 log` what it says
 - `pm2 monit` brings up a monitor
@@ -1794,7 +1796,54 @@ For RDBMS like MySQL, sharding is more difficult than for read optimized documen
 
 Simple example of using 2 "databases" while keeping the same interface for the consumer in `index.js` in `nodejs_scaling_apps_scripts/ch02/04/after`.
 
-## Microservices
+## Microservices (scaling the y-axis)
+
+Splitting the app into smaller apps dedicated to a specific service / topic, that can be individially scaled on the x and z axis if they get more traffic.
+
+Example: splitting a monolithic app into independent search, administration, checkout microservices.
+
+This also allows for splitting up engineers with different skill sets into different topics as well as reducing the complexity as only the individual services' problem has to be solved.
+
+It also allows for outsourcing specific microservices such as authorization (auth0), payment (stripe), geomapping etc.
+
+### Decomposing services
+
+Steps taken for the ticket reservation system in `nodejs_scaling_apps_scripts/ch03/02`:
+
+- split data (here just create folders for reservations and shows and copy the respective json files to them)
+- copy the `ticket-system.js` file into 2 files (`show.js` and `reservations.js`) and adjust data source and strip out services / routes not relevant to the microservices' task.
+- Change routes where it makes sense, e.g. in `shows.js` change `/show/:id` to `/:id` as it runs in its own service anyway
+- assign different port numbers to the individual microservices
+
+Test: `curl -X PUT http://localhost:3001/hold-seats -d "count=3&showID=5b805a570cee1505a52bc75d"`
+
+Now both services can be started individually and scaled using `pm2` according to the traffic they receive.
+
+### Service orchestration
+
+Problems: 
+- now the client has to use 2 different services / api URLs for shows and reservations.
+- services might need to talk to each other
+- if the data of the service depends on each other, there might be race conditions (e.g. 2 calls to check if seats are available, each getting "1" as a result, then both trying to reserve the same seat)
+
+For the given example: for buying a ticket, the system needs to check the `shows` service if there are seats available, checkout via the `reservations` service and reserve the seats on the `shows` service.
+
+The client (e.g. a SPA) COULD handle the orchestration by sending requests to the different services. This is not ideal for obvious reasons (putting too much logic in the frontend, frontend needs to know what can be done on which API, race conditions etc.)
+
+Solutions:
+
+API orchestration: one unified single API ("Ticket API") layer that handles the orchestration and logic that the frontend can use.
+
+![API orchestration](img/api_orchestration.png)
+
+- Messaging Layer: backend messaging between services; usually a TCP service used to communicate with other microservices. 
+
+![Messaging layer](img/messaging_layer.png)
+
+This also enables the "checkout" service to work even if the "shows" service is unavailable as the messages between the services can be queued, so the shows service can reserve the actual seats at a later time when the service becomes available again.
+
+### Create an orchestration
+
 
 
 # Node JS design patterns
