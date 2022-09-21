@@ -1844,7 +1844,21 @@ This also enables the "checkout" service to work even if the "shows" service is 
 
 ### Create an orchestration
 
+See `nodejs_scaling_apps_scripts/ch03/02/api.js` for a simple api front that uses the show and reservations services internally but provides a unified interface.
 
+## Final notes
+
+Messaging queue solutions:
+
+- apache kafka
+- rabbitmq
+- redis (key-value db with messaging queue funcitonality)
+
+Horizontal scaling:
+
+- pm2
+- MS azure (cloud)
+- AWS (cloud)
 
 # Node JS design patterns
 
