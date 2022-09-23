@@ -1998,20 +1998,27 @@ Problem: A basic express app makes an api call on the backend that takes ~300 ms
             {params: {albumId}}));
         res.json(data);
     });
+
+    app.get("/photos/:id", async (req: express.Request, res: express.Response) => {
+        const {data} = await (axios.get(`https://jsonplaceholder.typicode.com/photos/${req.params.id}`));
+        res.json(data);
+    });
     // ...
     
-Solution: cache the response using redis.
+Solution: cache the response using (io)redis.
 
-Install [nodejs redis library](https://www.npmjs.com/package/redis) with `npm i redis`.
+~~Install [nodejs redis library](https://www.npmjs.com/package/redis) with `npm i redis`.~~
+
+[ioredis](https://github.com/luin/ioredis) gives a much better experience, esp. with typescript. Changed to that from video.
+
 
 Import redis and create a new client:
 
-    import * as redis from "redis"; // not just "import redis from redis"
+    import Redis from "ioredis"
+    // using localhost on default port; options to connect to another server see the github link
+    const redis = new Redis();
+    redis.on('error', (err) => console.log('Redis Client Error', err));
     
-    // using localhost on default port
-    const redisClient = redis.createClient();
-    // using a (remote) URL
-    // const redisClient = redis.createClient( {url: 'redis://user:pass@example.com:13180'});
 
 The `redisClient` now has all the commands we used in `redis-cli` available (in camel- and all-uppercase).
 
@@ -2037,31 +2044,48 @@ We can now store the result in a redis key (taking into account request paramete
 For reuse, we can put the caching into a function:
 
     function getOrSetCache(key: string, cb: () => Promise<any>) {
-        return new Promise((resolve, reject) => {
-            // can't seem to get the types right for all the parameters
-            // @ts-ignore
-            redisClient.get(key, async (error: any, data: any) => {
-                if (error) return reject(error);
-                if (data != null) return resolve(JSON.parse(data));
-                const freshData = await (cb());
-                redisClient.setEx(key, DEFAULT_EXPIRATION, JSON.stringify(freshData));
-                resolve(freshData);
-            });
-        });
-    
-    }
+      return new Promise((resolve, reject) => {
+          // can't seem to get the types right for all the parameters
+          redis.get(key, async (error: any, data: any) => {
+              if (error) return reject(error);
+              if (data != null) {
+                  console.log('cache hit');
+                  return resolve(JSON.parse(data));
+              }
+              const freshData = await cb();
+              redis.setex(key, DEFAULT_EXPIRATION, JSON.stringify(freshData));
+              resolve(freshData);
+          });
+    });
+}
     
     app.get("/photos", async (req: express.Request, res: express.Response) => {
             const albumId = req.query.albumId;
             const photos = await getOrSetCache(`photos?albumId=${albumId}`, async () => {
-                const {data} = await axios.get("https://jsonplaceholder.typicode.com/photos", {params: {albumId}});
+                console.log("cache miss");
+                const {data} = await axios.get(
+                    "https://jsonplaceholder.typicode.com/photos",
+                    {params: {albumId}}
+                );
                 return data;
             });
             res.json(photos);
         }
     );
+    
+    app.get("/photos/:id", async (req: express.Request, res: express.Response) => {
+        const photos = await getOrSetCache(`photos:${req.params.id}`, async () => {
+            console.log("cache miss");
+            const {data} = await axios.get(
+                `https://jsonplaceholder.typicode.com/photos/${req.params.id}`
+            );
+            return data;
+        });
+        res.json(photos);
+    });
+    
 
-
+Note: storing tons of redundant JSON data in different key doesn't seem ideal, or is this a common redis pattern to reduce computing time at the expense of memory (searching the giant complete JSON in JS vs storing the JSON and all individual album and id subsets in different keys)?
 
 
 # Node JS design patterns
