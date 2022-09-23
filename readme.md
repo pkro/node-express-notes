@@ -1,4 +1,4 @@
-Notes from various nodejs and expressjs related courses
+Notes from various nodejs, redis and expressjs related courses
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
@@ -1860,6 +1860,136 @@ Horizontal scaling:
 - MS azure (cloud)
 - AWS (cloud)
 
+# Redis crash course
+
+Web dev simplified youtube channel quick redis overview
+
+- NoSQL DB
+- Extremely fast
+- key-value store; value can be almost anything from JSON objects to geodata (via plugins)
+- runs in RAM but can / is persisted to disks at intervals (configurable via [redis.conf](https://raw.githubusercontent.com/redis/redis/7.0/redis.conf))
+- Usually used for caching and in addition of an existing document DB or RDBMS, but can be used as the only DB as well when using persistence
+- Can be used as a pub/sub /  message queue
+
+>Like message queuing, publish-subscribe (commonly referred to as "pub-sub") messaging moves information from producers to consumers. However, in contrast to message queuing, publish-subscribe messaging allows multiple consumers to receive each message in a topic.
+ [source](https://dzone.com/articles/comparing-publish-subscribe-messaging-and-message)
+
+
+## Setting up
+
+- `sudo apt install redis`
+- Disable service autostart: `sudo systemctl disable redis-server`
+- Start with `redis-server`
+- cli: `redis-cli`
+
+[Configuration](https://redis.io/docs/manual/config/)
+
+Redis will run in the background as a service on port `6379`.
+
+[Docker alternative](https://hub.docker.com/_/redis)
+
+## Basic redis commands and datatypes using redis-cli
+
+### Working with strings
+
+    127.0.0.1:6379> SET name pkro # set key "name" to value "pkro"
+    OK
+    127.0.0.1:6379> GET name
+    "pkro"
+    127.0.0.1:6379> SET age 99
+    OK
+    127.0.0.1:6379> GET age
+    "99"                          # values default to string
+    127.0.0.1:6379> DEL age
+    (integer) 1                   # true (op successful)
+    127.0.0.1:6379> EXISTS age    
+    (integer) 0                   # false as we just deleted it
+    127.0.0.1:6379> EXISTS name
+    (integer) 1
+    127.0.0.1:6379> SET first_name "elgrande"
+    OK
+    127.0.0.1:6379> KEYS *nam* #  # list key names matching pattern
+    1) "first_name"
+    2) "name"
+    127.0.0.1:6379> FLUSHALL      # delete all keys
+    OK
+    127.0.0.1:6379> KEYS *
+    (empty list or set)
+    127.0.0.1:6379> TTL name        # time to live for key name
+    (integer) -1                    # forever
+    127.0.0.1:6379> expire name 10  # set expire to 10 seconds
+    (integer) 1
+    127.0.0.1:6379> TTL name
+    (integer) 6                     # after 4 seconds
+    127.0.0.1:6379> TTL name
+    (integer) 1
+    127.0.0.1:6379> TTL name  
+    (integer) -2                    # after 12 seconds 
+    127.0.0.1:6379> GET name
+    (nil)
+    127.0.0.1:6379> SETEX name 10 pkro  # set a key with 10 seconds expiration
+    OK
+    
+### Working with lists
+
+    127.0.0.1:6379> lpush friends jack  # create new list "friends" and add item "jack"
+    (integer) 1
+    127.0.0.1:6379> LPUSH friends joe   # add joe to the beginning of the list
+    (integer) 2
+    127.0.0.1:6379> RPUSH friends tina  # add tina to the end
+    (integer) 3
+    127.0.0.1:6379> lrange friends 0 -1 show list from index 0 to the end
+    1) "joe"
+    2) "jack"
+    3)"tina"
+    127.0.0.1:6379> LPOP friends  # get and remove first item
+    "joe"
+    127.0.0.1:6379> RPOP friends  # same from the end
+    "tina"
+    127.0.0.1:6379> lrange friends 0 -1
+    1) "jack"
+
+### Working with sets
+
+    127.0.0.1:6379> SADD hobbies "weight lifting" # create a set and add an entry
+    (integer) 1
+    127.0.0.1:6379> SADD hobbies "weight lifting" "reading" # add multiple entries
+    (integer) 1
+    127.0.0.1:6379> SMEMBERS hobbies      # show set members
+    1) "weight lifting"
+    2) "reading"
+    127.0.0.1:6379> SREM hobbies reading  # remove an item
+    (integer) 1
+    127.0.0.1:6379> SMEMBERS hobbies
+    1) "weight lifting"
+
+### Working with hashes
+
+Hashes are like JSON objects without nesting.
+
+    127.0.0.1:6379> HSET person name pkro
+    (integer) 1
+    127.0.0.1:6379> HSET person age 99
+    (integer) 1
+    127.0.0.1:6379> HGET person name
+    "pkro"
+    127.0.0.1:6379> HGETALL person
+    1) "name"   # key
+    2) "pkro"   # value
+    3) "age"    # key
+    4) "99"     # value
+    127.0.0.1:6379> HDEL person age
+    (integer) 1
+    127.0.0.1:6379> HEXISTS person age
+    (integer) 0
+
+## Using redis to cache API calls (server side)
+
+
+    
+
+
+
 # Node JS design patterns
 
 And yet another to-the-point and well explained Alex Banks course on linkedin learning
@@ -1869,4 +1999,78 @@ And yet another to-the-point and well explained Alex Banks course on linkedin le
 
 Notes from the linkedin learning course by Jamie Pittman
 
+**Note: the redis_crash_course_app is also a working minimal version of a typescript node express app** 
+
 ## First steps
+
+# Own notes
+
+## Setting up a typescript nodejs (+express) project 
+
+From: https://khalilstemmler.com/blogs/typescript/node-starter-project/
+
+[simple typescript starter project on github](https://github.com/stemmlerjs/simple-typescript-starter)
+
+### Basic setup
+
+    npm init
+    npm install typescript --save-dev
+    npm install @types/node --save-dev
+    
+    # create tsconfig.json and set some useful defaults
+    npx tsc --init --rootDir src --outDir build \
+    --esModuleInterop --resolveJsonModule --lib es6 \
+    --module commonjs --allowJs true --noImplicitAny true
+    
+    # either install ts-node globally:
+    npm install -g ts-node
+
+    # or locally into the project
+    npm install --save-dev ts-node
+    
+Running files using `ts-node src/blah.ts` now works.
+
+### Adding express
+
+    npm i express cors
+    npm i --save-dev @types/express @types/cors
+
+### Adding hot reloading
+    
+    npm install nodemon
+
+Create `nodemon.json`:
+
+    {
+      "watch": ["src"],
+      "ext": ".ts,.js",
+      "ignore": [],
+      "exec": "ts-node ./src/index.ts"
+    }
+
+Add a dev script to `package.json` under "scripts" to run nodemon during development:
+  
+    "start:dev": "nodemon"
+
+Running `npm run start:dev` now starts `index.ts` and recompiles it whenever it changes.
+
+### Adding build scripts for production
+
+    # install a tool that just deletes a given path with everything in it, like rm -rf
+    npm install --save-dev rimraf
+
+Add a `build`, `start:prod` and `start` script to `package.json`:
+    
+    "build": "rimraf ./build && tsc"
+    "start:prod": "npm run build && node build/index.js",
+    "start": "use either start:dev for local development with hot reloading or start:prod to build and start the production script with node"
+
+As this starts a new node instance, there will be errors if a new instance is started on the same port and the old one is still running.
+
+To remedy this, [look into these solutions](https://stackoverflow.com/questions/23258421/how-to-stop-app-that-node-js-express-npm-start)
+
+### Adding eslint + prettier
+
+*todo*
+
+https://khalilstemmler.com/blogs/typescript/eslint-for-typescript/
