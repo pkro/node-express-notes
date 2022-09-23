@@ -2009,7 +2009,7 @@ Solution: cache the response using (io)redis.
 
 ~~Install [nodejs redis library](https://www.npmjs.com/package/redis) with `npm i redis`.~~
 
-[ioredis](https://github.com/luin/ioredis) gives a much better experience, esp. with typescript. Changed to that from video.
+[ioredis](https://github.com/luin/ioredis) gives a much better experience, esp. with typescript. Changed to that from the course example.
 
 
 Import redis and create a new client:
