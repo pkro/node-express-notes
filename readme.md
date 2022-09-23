@@ -1989,8 +1989,78 @@ Hashes are like JSON objects without nesting.
 
 ## Using redis to cache API calls (server side)
 
-
+Problem: A basic express app makes an api call on the backend that takes ~300 ms to complete for each request:
     
+    // ...
+    app.get("/photos", async (req: express.Request, res: express.Response) => {
+        const albumId = req.query.albumId;
+        const {data} = await (axios.get("https://jsonplaceholder.typicode.com/photos",
+            {params: {albumId}}));
+        res.json(data);
+    });
+    // ...
+    
+Solution: cache the response using redis.
+
+Install [nodejs redis library](https://www.npmjs.com/package/redis) with `npm i redis`.
+
+Import redis and create a new client:
+
+    import * as redis from "redis"; // not just "import redis from redis"
+    
+    // using localhost on default port
+    const redisClient = redis.createClient();
+    // using a (remote) URL
+    // const redisClient = redis.createClient( {url: 'redis://user:pass@example.com:13180'});
+
+The `redisClient` now has all the commands we used in `redis-cli` available (in camel- and all-uppercase).
+
+We can now store the result in a redis key (taking into account request parameters) and return it if it is already stored, or request it from the api and then store it.
+
+    app.get("/photos", async (req: express.Request, res: express.Response) => {
+        const albumId = req.query.albumId;
+        const photos = await redisClient.get(`photos?albumId=${albumId}`);
+        if (photos != null) {
+            console.log("cache hit");
+            return res.json(JSON.parse(photos));
+        } else {
+            console.log("cache miss");
+            const {data} = await (axios.get("https://jsonplaceholder.typicode.com/photos", {params: {albumId}}));
+            res.json(data);
+            await redisClient.setEx(
+                `photos?albumId=${albumId}`,  // key
+                DEFAULT_EXPIRATION,           // self defined constant, e.g. 3600
+                JSON.stringify(data));        // redis doesn't automatically convert JS objects to JSON strings
+        }
+    });
+
+For reuse, we can put the caching into a function:
+
+    function getOrSetCache(key: string, cb: () => Promise<any>) {
+        return new Promise((resolve, reject) => {
+            // can't seem to get the types right for all the parameters
+            // @ts-ignore
+            redisClient.get(key, async (error: any, data: any) => {
+                if (error) return reject(error);
+                if (data != null) return resolve(JSON.parse(data));
+                const freshData = await (cb());
+                redisClient.setEx(key, DEFAULT_EXPIRATION, JSON.stringify(freshData));
+                resolve(freshData);
+            });
+        });
+    
+    }
+    
+    app.get("/photos", async (req: express.Request, res: express.Response) => {
+            const albumId = req.query.albumId;
+            const photos = await getOrSetCache(`photos?albumId=${albumId}`, async () => {
+                const {data} = await axios.get("https://jsonplaceholder.typicode.com/photos", {params: {albumId}});
+                return data;
+            });
+            res.json(photos);
+        }
+    );
+
 
 
 
